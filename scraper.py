@@ -1,9 +1,9 @@
-import re
 import hashlib
+import re
 import time
-from urllib.parse import urlparse, urljoin, urlsplit, urldefrag
-from collections import Counter, defaultdict
 from bs4 import BeautifulSoup
+from collections import Counter, defaultdict
+from urllib.parse import urlparse, urljoin, urlsplit, urldefrag
 
 stop_words = {
     "a", "about", "above", "after", "again", "against", "all", "am", "an", "and",
@@ -26,22 +26,23 @@ stop_words = {
     "wouldn't", "you", "you'd", "you'll", "you're", "you've", "your", "yours",
     "yourself", "yourselves"
 }
+
+duplicate_hashes = set()
+page_word_count = {}
+subdomain_unique_pages = defaultdict(int)
+total_word_count = Counter()
 unique_pages = set()
-content_hashes = set()
-subdomain_counts = defaultdict(int)
-word_counter = Counter()
-page_word_counts = {}
-visited_patterns = defaultdict(int)
+visited = defaultdict(int)
 
 def scraper(url, resp):
     if resp.status != 200 or resp.raw_response is None:
         return []
     
     # Detect and avoid sets of similar pages with no information
-    content_hash = hashlib.md5(resp.raw_response.content).hexdigest()
-    if content_hash in content_hashes:
+    hash = hashlib.md5(resp.raw_response.content).hexdigest()
+    if hash in duplicate_hashes:
         return []
-    content_hashes.add(content_hash)
+    duplicate_hashes.add(hash)
 
     # How many unique pages did you find?
     parsed = urlparse(url)
@@ -50,7 +51,7 @@ def scraper(url, resp):
 
     # the number of unique pages detected in each subdomain
     if 'uci.edu' in parsed.netloc:
-        subdomain_counts[parsed.netloc] += 1
+        subdomain_unique_pages[parsed.netloc] += 1
 
     count_words(resp)
 
@@ -99,8 +100,9 @@ def is_valid(url):
         if len(path_depth) > 8:
             return False
         
-        for pattern in [
-            re.compile(pattern) for pattern in [
+        # pattern based checks
+        for p in [
+            re.compile(p) for p in [
                 r"wics\.ics\.uci\.edu/events/20",
                 r"\?share=(facebook|twitter)",
                 r"\?action=login",
@@ -121,57 +123,15 @@ def is_valid(url):
                 r"/category/page/\d+"
             ]
         ]:
-            if pattern.search(url):
+            if p.search(url):
                 return False
-
-        if url.startswith("https://wics.ics.uci.edu/events/") \
-                or url.endswith("?share=facebook") \
-                or url.endswith("?share=twitter") \
-                or url.endswith("?action=login") \
-                or url.endswith(".zip") \
-                or url.endswith(".pdf") \
-                or url.endswith("txt") \
-                or url.endswith("tar.gz") \
-                or url.endswith(".bib") \
-                or url.endswith(".htm") \
-                or url.endswith(".xml") \
-                or url.endswith(".bam") \
-                or url.endswith(".java"):
-            return False
-
-        if url.startswith("http://www.ics.uci.edu/~eppstein/pix/"):
-            return False
-
-        # traps for 'wics' subdomain patterns
-        if "wics" in url and "/?afg" in url and not url.endswith("page_id=1"):
-            return False
-        elif "wics" in url and "/img_" in url:
-            return False
-
-        # trap for "doku.php"
-        if "doku.php" in url:
-            return False
-    
-        # no information
-        if "sli.ics.uci.edu/Classes" in url:
-            return False
-
-        # trap for "grape.ics.uci.edu" with specific patterns
-        if "grape.ics.uci.edu" in url and (
-            "action=diff&version=" in url or
-            "timeline?from" in url or
-            ("?version=" in url and not url.endswith("?version=1"))
-        ):
-            return False
-
-        # detect and limit repetitive patterns in visited patterns to avoid traps
+        
         path_pattern = re.sub(r'\d+', 'N', parsed.path)
-        visited_patterns[path_pattern] += 1
-        if visited_patterns[path_pattern] > 30:
+        visited[path_pattern] += 1
+        if visited[path_pattern] > 30:
             return False
-
-        # check if URL matches allowed paths
-        if not any(pattern.match(url) for pattern in [
+        
+        if not any(p.match(url) for p in [
             re.compile(r".*\.ics\.uci\.edu/.*"), 
             re.compile(r".*\.cs\.uci\.edu/.*"), 
             re.compile(r".*\.informatics\.uci\.edu/.*"), 
@@ -180,8 +140,9 @@ def is_valid(url):
         ]):
             return False
         
-        # Detect and avoid dead URLs that return a 200 status but no data
-        # Detect and avoid crawling very large files, especially if they have low information value
+        # parsing based checks
+        if not is_valid_helper(url):
+            return False
 
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
@@ -197,6 +158,41 @@ def is_valid(url):
         print ("TypeError for ", parsed)
         raise
 
+def is_valid_helper(url):
+    invalid_suffixes = (
+        "?share=facebook", "?share=twitter", "?action=login",
+        ".zip", ".pdf", ".txt", ".tar.gz", ".bib", ".htm", ".xml",
+        ".bam", ".java"
+    )
+
+    invalid_prefixes = ("http://www.ics.uci.edu/~eppstein/pix/",)
+
+    if any(url.endswith(suffix) for suffix in invalid_suffixes):
+        return False
+    if any(url.startswith(prefix) for prefix in invalid_prefixes):
+        return False
+
+    if url.startswith("https://wics.ics.uci.edu/events/"):
+        return False
+    if "wics" in url:
+        if "/?afg" in url and not url.endswith("page_id=1"):
+            return False
+        if "/img_" in url:
+            return False
+    if "doku.php" in url:
+        return False
+    if "sli.ics.uci.edu/Classes" in url:
+        return False
+    if "grape.ics.uci.edu" in url:
+        if any(
+            pattern in url for pattern in [
+                "action=diff&version=", "timeline?from"
+            ]
+        ) or ("?version=" in url and not url.endswith("?version=1")):
+            return False
+
+    return True
+
 def count_words(resp):
     try:
         soup = BeautifulSoup(resp.raw_response.content, "html.parser")
@@ -209,7 +205,31 @@ def count_words(resp):
             for w in re.findall(r"\b\w+\b", text)
             if w.lower() not in stop_words and len(w) > 1
         ]
-        page_word_counts[resp.url] = len(words)
-        word_counter.update(words)
+        page_word_count[resp.url] = len(words)
+        total_word_count.update(words)
     except Exception as e:
         print(f"Error counting words on {resp.url}: {str(e)}")
+
+def create_report():
+    with open("report.txt", 'w', encoding='utf-8') as f:
+        f.write("unique pages:\n")
+        f.write(f"{len(unique_pages)}\n\n")
+
+        if page_word_count:
+            longest_url = max(page_word_count, key=page_word_count.get)
+            word_count = page_word_count[longest_url]
+        else:
+            longest_url, word_count = None, 0
+            
+        f.write("longest page:\n")
+        f.write(f"URL: {longest_url}\n")
+        f.write(f"word count: {word_count}\n\n")
+
+        f.write("50 most common words:\n")
+        for word, count in word_count.most_common(50):
+            f.write(f"{word}: {count}\n")
+        f.write("\n")
+
+        f.write("subdomains:\n")
+        for subdomain, count in sorted(subdomain_unique_pages.items()):
+            f.write(f"{subdomain}, {count}\n")
