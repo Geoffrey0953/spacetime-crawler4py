@@ -4,6 +4,7 @@ import time
 from bs4 import BeautifulSoup
 from collections import Counter, defaultdict
 from urllib.parse import urlparse, urljoin, urlsplit, urldefrag
+import threading
 
 stop_words = {
     "a", "about", "above", "after", "again", "against", "all", "am", "an", "and",

@@ -1,3 +1,9 @@
+import multiprocessing
+# CRITICAL FIX FOR MACOS: Set start method to 'fork' before any other imports
+# This must be done before importing spacetime/crawler modules
+if __name__ == "__main__":
+    multiprocessing.set_start_method('fork', force=True)
+
 from configparser import ConfigParser
 from argparse import ArgumentParser
 

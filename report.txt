@@ -1,0 +1,12 @@
+unique pages:
+0
+
+longest page:
+URL: None
+word count: 0
+
+50 most common words:
+
+subdomains:
+
+End of report
