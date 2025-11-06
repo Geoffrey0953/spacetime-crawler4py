@@ -34,6 +34,23 @@ total_word_count = Counter()
 unique_pages = set()
 visited = defaultdict(int)
 
+def count_words(resp):
+    try:
+        soup = BeautifulSoup(resp.raw_response.content, "html.parser")
+        for script in soup(["script", "style"]):
+            script.decompose()
+
+        text = " ".join(soup.stripped_strings)
+        words = [
+            w.lower()
+            for w in re.findall(r"\b\w+\b", text)
+            if w.lower() not in stop_words and len(w) > 1
+        ]
+        page_word_count[resp.url] = len(words)
+        total_word_count.update(words)
+    except Exception as e:
+        print(f"Error counting words on {resp.url}: {str(e)}")
+
 def scraper(url, resp):
     if resp.status != 200 or resp.raw_response is None:
         return []
@@ -152,7 +169,7 @@ def is_valid(url):
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
-            + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
+            + r"|rm|smil|wmv|swf|wma|zip|rar|gz|mpg|img|war|apk|py|ppsx|pps)$", parsed.path.lower())
 
     except TypeError:
         print ("TypeError for ", parsed)
@@ -193,23 +210,6 @@ def is_valid_helper(url):
 
     return True
 
-def count_words(resp):
-    try:
-        soup = BeautifulSoup(resp.raw_response.content, "html.parser")
-        for script in soup(["script", "style"]):
-            script.decompose()
-
-        text = " ".join(soup.stripped_strings)
-        words = [
-            w.lower()
-            for w in re.findall(r"\b\w+\b", text)
-            if w.lower() not in stop_words and len(w) > 1
-        ]
-        page_word_count[resp.url] = len(words)
-        total_word_count.update(words)
-    except Exception as e:
-        print(f"Error counting words on {resp.url}: {str(e)}")
-
 def create_report():
     with open("report.txt", 'w', encoding='utf-8') as f:
         f.write("unique pages:\n")
@@ -226,10 +226,12 @@ def create_report():
         f.write(f"word count: {word_count}\n\n")
 
         f.write("50 most common words:\n")
-        for word, count in word_count.most_common(50):
+        for word, count in total_word_count.most_common(50):
             f.write(f"{word}: {count}\n")
         f.write("\n")
 
         f.write("subdomains:\n")
         for subdomain, count in sorted(subdomain_unique_pages.items()):
             f.write(f"{subdomain}, {count}\n")
+
+        f.write("\nEnd of report\n")
